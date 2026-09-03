@@ -1,0 +1,110 @@
+<!doctype html>
+<html lang="ja">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>Excel/WPS 課題提出フォーム</title>
+        <!-- FlaskのローカルCSS読み込み（絶対パス指定） -->
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" />
+    </head>
+    <body class="bg-light">
+        <div class="container my-5" style="max-width: 600px">
+            <div class="card shadow-sm">
+                <div class="card-header bg-success text-white py-3">
+                    <h4 class="mb-0 text-center">Excel / WPS カリキュラム 提出フォーム</h4>
+                </div>
+                <div class="card-body p-4">
+                    <form action="/upload_progress" method="POST" enctype="multipart/form-data">
+                        <!-- ① 受講生ID入力 -->
+                        <div class="mb-3">
+                            <label for="student_id" class="form-label fw-bold">ユーザーID（社員番号など）</label>
+                            <input
+                                type="text"
+                                class="form-control"
+                                id="student_id"
+                                name="student_id"
+                                placeholder="例: emp_001"
+                                required
+                            />
+                        </div>
+
+                        <!-- ② ステージ選択 -->
+                        <div class="mb-3">
+                            <label for="stage_id" class="form-label fw-bold">提出するステージ</label>
+                            <select class="form-select" id="stage_id" name="stage_id" onchange="updateStageInfo()">
+                                <option value="0">ステージ0: 基本操作</option>
+                                <option value="1">ステージ1: データ型</option>
+                                <option value="2">ステージ2: 基本関数</option>
+                                <option value="3">ステージ3: 参照の理解</option>
+                                <option value="4">ステージ4: 応用関数</option>
+                                <option value="5">ステージ5: data整形</option>
+                                <option value="6">ステージ6: 可視化（※教員目視あり）</option>
+                                <option value="7">ステージ7: 分析基礎</option>
+                                <option value="8">ステージ8: 総合演習</option>
+                            </select>
+                        </div>
+
+                        <!-- 選んだステージの目標を自動表示する枠（受講生へのガイド） -->
+                        <div class="alert alert-secondary p-3 mb-4" id="stage_guide">
+                            <div class="small fw-bold text-success">🎯 到達目標</div>
+                            <div id="target_goal" class="small mb-2">セル・行列・シート操作、保存形式 of 理解</div>
+                            <div class="small fw-bold text-primary">📝 代表課題</div>
+                            <div id="target_task" class="small">指定セルに指定値を入力して保存</div>
+                        </div>
+
+                        <!-- ③ ファイル選択 -->
+                        <div class="mb-4">
+                            <label for="excel_file" class="form-label fw-bold">Excel / WPSファイル (.xlsx)</label>
+                            <input
+                                class="form-control"
+                                type="file"
+                                id="excel_file"
+                                name="excel_file"
+                                accept=".xlsx"
+                                required
+                            />
+                            <div class="form-text text-muted">
+                                ※MS-ExcelおよびWPS Calcで保存した.xlsxファイルに対応しています。
+                            </div>
+                        </div>
+
+                        <!-- ④ 送信ボタン -->
+                        <div class="d-grid">
+                            <button type="submit" class="btn btn-success btn-lg">課題を提出する</button>
+                        </div>
+                    </form>
+                </div>
+            </div>
+
+            <div class="text-center mt-3">
+                <a href="/admin" class="text-muted small">教員用管理画面へ切り替え</a>
+            </div>
+        </div>
+
+        <script>
+            const stageDetails = {
+                0: { goal: "セル・行列・シート操作、保存形式の理解", task: "指定セルに指定値を入力して保存" },
+                1: { goal: "数値/文字列/日付/連番の違い、書式設定", task: "家計簿の日付・金額列を正しい型で作成" },
+                2: { goal: "SUM, AVERAGE, COUNT, MAX/MIN, IF", task: "小テストの点数集計表" },
+                3: { goal: "相対参照・絶対参照($)、シート間参照", task: "単価×数量表をコピーで崩さず作る" },
+                4: {
+                    goal: "VLOOKUP/XLOOKUP, INDEX/MATCH, SUMIF/COUNTIF, 文字列関数",
+                    task: "商品マスタから価格を自動取得",
+                },
+                5: { goal: "テーブル化、並べ替え・フィルタ、条件付き書式", task: "売上データの異常値ハイライト" },
+                6: {
+                    goal: "棒/折れ線/円グラフ、複合グラフ",
+                    task: "月次売上グラフの作成（教員の目視チェックが入ります）",
+                },
+                7: { goal: "ピボットテーブル、データ検証(入力規則)", task: "部門別・月別クロス集計" },
+                8: { goal: "実務シナリオ(シフト表・在庫管理・簡易会計)", task: "複数機能を組み合わせた課題" },
+            };
+
+            function updateStageInfo() {
+                const stageId = document.getElementById("stage_id").value;
+                document.getElementById("target_goal").innerText = stageDetails[stageId].goal;
+                document.getElementById("target_task").innerText = stageDetails[stageId].task;
+            }
+        </script>
+    </body>
+</html>

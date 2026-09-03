@@ -1,0 +1,97 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <title>教員用指導管理画面 - Excel/WPS講座</title>
+    <!-- VS Codeの自動整形バグ対策済みのインライン記述を採用 -->
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
+    <style>
+        .error-badge { font-size: 0.85rem; }
+        .error-list { margin-bottom: 0; padding-left: 20px; font-size: 0.9rem; }
+    </style>
+</head>
+<body class="bg-light">
+
+    <div class="container my-5">
+        <div class="d-flex justify-content-between align-items-center mb-4">
+            <h2>Excel / WPSカリキュラム 受講生進捗・指導画面</h2>
+            <span class="badge bg-secondary">教員モード</span>
+        </div>
+
+        <div class="card shadow-sm">
+            <div class="card-body p-0">
+                <table class="table table-hover align-middle mb-0">
+                    <thead class="table-dark">
+                        <tr>
+                            <th style="width: 12%;">受講生ID</th>
+                            <th style="width: 15%;">ステージ</th>
+                            <th style="width: 12%;">ステータス</th>
+                            <th style="width: 35%;">自動検知された「躓き・エラー・数式」</th>
+                            <th style="width: 26%;">目視評価 / 指導コメント</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        {% for row in results %}
+                        <tr>
+                            <td><strong>{{ row.student_id }}</strong></td>
+                            <td>
+                                <span class="text-muted">Lv.{{ row.stage_id }}</span><br>
+                                {{ row.stage_name }}
+                            </td>
+                            <td>
+                                {% if row.status == '提出済' %}
+                                    <span class="badge bg-success">提出済</span>
+                                {% elif row.status == '目視レビュー待ち' %}
+                                    <span class="badge bg-warning text-dark">目視レビュー待ち</span>
+                                {% elif row.status == '要確認' or row.status == '要修正' %}
+                                    <span class="badge bg-danger">要修正</span>
+                                {% else %}
+                                    <span class="badge bg-secondary">{{ row.status }}</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if row.error_count > 0 %}
+                                    <div class="mb-1">
+                                        <span class="badge bg-danger error-badge">{{ row.error_count }}件の警告</span>
+                                    </div>
+                                {% endif %}
+                                <ul class="error-list {% if row.error_count > 0 %}text-danger{% else %}text-secondary{% endif %}">
+                                    {% for err in row.errors %}
+                                        <li>{{ err }}</li>
+                                    {% endfor %}
+                                </ul>
+                            </td>
+                            <td>
+                                <form action="{{ url_for('review_stage', record_id=row.id) }}" method="POST" class="p-2 border rounded bg-white shadow-xs">
+                                    <div class="mb-2">
+                                        <!-- VS Code自動整形に絶対壊されないインラインJinja2記法 -->
+                                        <select name="status" class="form-select form-select-sm">
+                                            <option value="提出済" {{ 'selected' if row.status == '提出済' else '' }}>合格（提出済）</option>
+                                            <option value="目視レビュー待ち" {{ 'selected' if row.status == '目視レビュー待ち' else '' }}>目視レビュー待ち</option>
+                                            <option value="要修正" {{ 'selected' if row.status == '要修正' else '' }}>要修正</option>
+                                        </select>
+                                    </div>
+                                    <div class="mb-2">
+                                        <textarea name="human_review" class="form-control form-control-sm" rows="2" placeholder="フィードバックを入力">{{ row.human_review or '' }}</textarea>
+                                    </div>
+                                    <div class="d-grid">
+                                        <button type="submit" class="btn btn-primary btn-sm">評価を確定・更新</button>
+                                    </div>
+                                </form>
+                            </td>
+                        </tr>
+                        {% endfor %}
+                        
+                        {% if not results %}
+                        <tr>
+                            <td colspan="5" class="text-center py-4 text-muted">まだ提出された進捗データがありません。</td>
+                        </tr>
+                        {% endif %}
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+</body>
+</html>
