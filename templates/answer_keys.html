@@ -1,0 +1,107 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>正解データ管理 - {{ stage_titles.get(stage_id, 'ステージ' ~ stage_id) }}</title>
+  <style>
+    body { font-family: sans-serif; margin: 2rem; color: #222; }
+    h1 { font-size: 1.4rem; }
+    table { border-collapse: collapse; width: 100%; margin-bottom: 2rem; }
+    th, td { border: 1px solid #ccc; padding: 0.5rem 0.75rem; text-align: left; }
+    th { background: #f2f2f2; }
+    form.inline { display: inline; }
+    .stage-nav a { margin-right: 0.75rem; }
+    .stage-nav a.active { font-weight: bold; text-decoration: underline; }
+    .add-form label { display: block; margin-top: 0.75rem; font-size: 0.9rem; }
+    .add-form input { padding: 0.4rem; width: 100%; max-width: 320px; box-sizing: border-box; }
+    .add-form button { margin-top: 1rem; padding: 0.5rem 1.2rem; }
+    .delete-btn { color: #b00020; background: none; border: 1px solid #b00020; padding: 0.2rem 0.6rem; border-radius: 4px; cursor: pointer; }
+    .hint-cell { color: #555; font-size: 0.9rem; }
+    .back-link { margin-bottom: 1rem; display: inline-block; }
+  </style>
+</head>
+<body>
+  <a class="back-link" href="{{ url_for('admin_dashboard') }}">&larr; 管理画面トップへ戻る</a>
+  <h1>正解データ管理</h1>
+
+  <nav class="stage-nav">
+    {% for sid, title in stage_titles.items() %}
+      <a href="{{ url_for('answer_keys_page', stage_id=sid) }}"
+         class="{{ 'active' if sid == stage_id else '' }}">
+        {{ sid }}: {{ title }}
+      </a>
+    {% endfor %}
+  </nav>
+
+  <h2>{{ stage_titles.get(stage_id, 'ステージ' ~ stage_id) }} の正解一覧</h2>
+
+  {% if keys %}
+  <table>
+    <thead>
+      <tr>
+        <th>セル</th>
+        <th>期待値（値チェック用）</th>
+        <th>期待する型（型チェック用）</th>
+        <th>ヒント</th>
+        <th>操作</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for key in keys %}
+      <tr>
+        <td>{{ key.cell }}</td>
+        <td>{{ key.expected_value or '-' }}</td>
+        <td>{{ {'n': '数値', 's': '文字列', 'd': '日付'}.get(key.expected_type, '-') }}</td>
+        <td class="hint-cell">{{ key.hint or '-' }}</td>
+        <td>
+          <form class="inline" method="post"
+                action="{{ url_for('answer_keys_delete', record_id=key.id) }}"
+                onsubmit="return confirm('このセルの正解データを削除しますか？');">
+            <input type="hidden" name="stage_id" value="{{ stage_id }}">
+            <button type="submit" class="delete-btn">削除</button>
+          </form>
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>このステージにはまだ正解データが登録されていません。</p>
+  {% endif %}
+
+  <h2>新しい正解データを追加</h2>
+  <p style="color:#555; font-size:0.9rem;">
+    ステージ0は「期待値」を、ステージ1は「期待する型」を設定してください（両方入力も可）。
+  </p>
+  <form class="add-form" method="post" action="{{ url_for('answer_keys_add') }}">
+    <input type="hidden" name="stage_id" value="{{ stage_id }}">
+
+    <label>
+      セル（例: B2）
+      <input type="text" name="cell" required placeholder="B2">
+    </label>
+
+    <label>
+      期待値（値チェック用・例: 山田太郎、1500 など。任意）
+      <input type="text" name="expected_value" placeholder="1500">
+    </label>
+
+    <label>
+      期待する型（型チェック用・任意）
+      <select name="expected_type">
+        <option value="">指定しない</option>
+        <option value="n">数値</option>
+        <option value="s">文字列</option>
+        <option value="d">日付</option>
+      </select>
+    </label>
+
+    <label>
+      ヒント（任意・間違えている受講生に表示）
+      <input type="text" name="hint" placeholder="半角数字で入力しましょう">
+    </label>
+
+    <button type="submit">追加する</button>
+  </form>
+</body>
+</html>

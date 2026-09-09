@@ -52,7 +52,24 @@
                             <div id="target_task" class="small">指定セルに指定値を入力して保存</div>
                         </div>
 
-                        <!-- ③ ファイル選択 -->
+                        <!-- ③ 課題ファイルのダウンロード -->
+                        <div class="mb-3">
+                            <label class="form-label fw-bold">課題ファイル (.xlsx)</label>
+                            <div class="d-grid">
+                                <a
+                                    href="{{ url_for('static', filename='assignments/stage0_template.xlsx') }}"
+                                    class="btn btn-outline-primary"
+                                    download
+                                >
+                                    ⬇️ 課題ファイルをダウンロード
+                                </a>
+                            </div>
+                            <div class="form-text text-muted">
+                                ※このファイルに記入して、下のフォームから提出してください。
+                            </div>
+                        </div>
+
+                        <!-- ④ ファイル選択 -->
                         <div class="mb-4">
                             <label for="excel_file" class="form-label fw-bold">Excel / WPSファイル (.xlsx)</label>
                             <input
@@ -68,7 +85,7 @@
                             </div>
                         </div>
 
-                        <!-- ④ 送信ボタン -->
+                        <!-- ⑤ 送信ボタン -->
                         <div class="d-grid">
                             <button type="submit" class="btn btn-success btn-lg">課題を提出する</button>
                         </div>

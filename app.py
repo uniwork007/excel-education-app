@@ -60,11 +60,36 @@ def analyze_excel_file(file_stream, stage_id):
   detected_errors = []
   functions_used = set()  # ステージ8で使用関数を収集するための集合
 
+  # --- チェック対象セルの取得 ---
+  # answer_keys に登録されているセル座標をチェック対象とする。
+  # 登録がない場合は全セルをスキャン（既存挙動を維持）。
+  # これにより説明文セルへの誤検知を防ぐ。
+  try:
+    ak_response = supabase.table("answer_keys").select("cell").eq(
+        "stage_id", stage_id).execute()
+    target_cells = {
+        row["cell"].upper() for row in (ak_response.data or []) if row.get("cell")
+    }
+  except Exception:
+    target_cells = set()
+
+  def should_check(cell):
+    """チェック対象セルかどうかを判定する。
+    answer_keys に登録がある場合はそのセルのみ。
+    登録がない場合は全セルをスキャン。
+    """
+    if not target_cells:
+      return True
+    return cell.coordinate.upper() in target_cells
+
   for row in ws.iter_rows(values_only=False):
     for cell in row:
       val = str(cell.value) if cell.value else ""
 
-      # --- 共通のチェック（全ステージ共通） ---
+      # --- 共通のチェック（チェック対象セルのみ） ---
+      if not should_check(cell):
+        continue
+
       if any(err in val for err in ["#REF!", "#VALUE!", "#NAME?", "#DIV/0!"]):
         if "#NAME?" not in val:
           detected_errors.append(

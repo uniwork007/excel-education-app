@@ -15,7 +15,10 @@
     <div class="container my-5">
         <div class="d-flex justify-content-between align-items-center mb-4">
             <h2>Excel / WPSカリキュラム 受講生進捗・指導画面</h2>
-            <span class="badge bg-secondary">教員モード</span>
+            <div class="d-flex gap-2 align-items-center">
+                <a href="{{ url_for('answer_keys_page', stage_id=0) }}" class="btn btn-outline-secondary btn-sm">正解データ管理</a>
+                <span class="badge bg-secondary">教員モード</span>
+            </div>
         </div>
 
         <div class="card shadow-sm">
