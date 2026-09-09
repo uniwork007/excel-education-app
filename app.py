@@ -1,6 +1,7 @@
 import os
 import re
 import zipfile
+import unicodedata
 from flask import Flask, request, jsonify, render_template, redirect, url_for
 import openpyxl
 from dotenv import load_dotenv
@@ -39,6 +40,19 @@ STAGE_TITLES = {
 }
 
 
+def normalize_for_compare(value):
+  """初心者の入力揺れ（全角/半角、前後の空白、数値/文字列の違いなど）を
+  吸収したうえで比較できるように正規化する。
+  """
+  if value is None:
+    return ""
+  # 整数として扱えるfloatは末尾の.0を除去して比較する（1500.0 と 1500 を同一視）
+  if isinstance(value, float) and value.is_integer():
+    value = int(value)
+  text = unicodedata.normalize('NFKC', str(value))
+  return text.strip()
+
+
 def analyze_excel_file(file_stream, stage_id):
   """Excelファイルを解析して、躓き要素や数式をリストで返す"""
   wb = openpyxl.load_workbook(file_stream, data_only=False)
@@ -57,7 +71,10 @@ def analyze_excel_file(file_stream, stage_id):
               f"セル {cell.coordinate}: 数式エラー（{val}）が発生しています。")
           continue
 
-      if "＝" in val or "（" in val or "）" in val:
+      # 全角文字のチェックは「数式として入力されたセル」のみを対象とする。
+      # 説明文セルの「（采点対象外）」などの普通の日本語テキストまで誤検知しないため。
+      looks_like_formula = val.startswith("=") or val.startswith("＝")
+      if looks_like_formula and ("＝" in val or "（" in val or "）" in val):
         detected_errors.append(
             f"セル {cell.coordinate}: ⚠️数式に全角文字（＝やかっこ）が混入しています。")
         continue
@@ -264,6 +281,89 @@ def analyze_excel_file(file_stream, stage_id):
         f"【検出機能一覧】{', '.join(features_used) if features_used else '検出された機能はありませんでした'}"
     )
 
+  # --- ステージ0：基本操作のチェック（Supabaseの正解データと突き合わせる） ---
+  if stage_id == 0:
+    try:
+      response = supabase.table("answer_keys").select("*").eq("stage_id",
+                                                                0).execute()
+      answer_keys = response.data or []
+    except Exception as e:
+      answer_keys = []
+      detected_errors.append(
+          f"【注意】正解データの取得に失敗しました（{e}）。管理者に確認してください。")
+
+    if not answer_keys:
+      detected_errors.append(
+          "【注意】ステージ0の正解データがまだ登録されていません。管理者に確認してください。")
+    else:
+      for key in answer_keys:
+        cell_ref = key.get("cell")
+        expected_value = key.get("expected_value")
+        hint = key.get("hint") or ""
+
+        try:
+          actual_value = ws[cell_ref].value
+        except Exception:
+          detected_errors.append(
+              f"⚠️セル指定「{cell_ref}」が不正なため確認できませんでした。管理者に確認してください。")
+          continue
+
+        if normalize_for_compare(actual_value) != normalize_for_compare(
+            expected_value):
+          display_actual = actual_value if actual_value is not None else "(空欄)"
+          hint_text = f" ヒント: {hint}" if hint else ""
+          detected_errors.append(
+              f"セル {cell_ref}: ⚠️期待される値と異なります（入力値: {display_actual}）。{hint_text}"
+          )
+
+  # --- ステージ1：データ型のチェック（openpyxlのdata_typeで数値/文字列/日付を判定） ---
+  # 「1500」と入力しても「'1500」と入力しても見た目の文字列は同じになるため、
+  # 値の比較ではなく cell.data_type（'n'=数値, 's'=文字列, 'd'=日付）で判定する。
+  if stage_id == 1:
+    type_labels = {'n': '数値', 's': '文字列', 'd': '日付', 'b': '真偽値', 'f': '数式'}
+
+    try:
+      response = supabase.table("answer_keys").select("*").eq(
+          "stage_id", 1).execute()
+      type_keys = [
+          k for k in (response.data or []) if k.get("expected_type")
+      ]
+    except Exception as e:
+      type_keys = []
+      detected_errors.append(
+          f"【注意】型チェック用データの取得に失敗しました（{e}）。管理者に確認してください。")
+
+    for key in type_keys:
+      cell_ref = key.get("cell")
+      expected_type = key.get("expected_type")
+
+      try:
+        cell = ws[cell_ref]
+      except Exception:
+        detected_errors.append(
+            f"⚠️セル指定「{cell_ref}」が不正なため確認できませんでした。管理者に確認してください。")
+        continue
+
+      actual_type = cell.data_type
+
+      if actual_type != expected_type:
+        expected_label = type_labels.get(expected_type, expected_type)
+        actual_label = type_labels.get(actual_type, actual_type)
+
+        guidance = ""
+        if expected_type == 'n' and actual_type == 's':
+          guidance = (
+              "セルが左寄せになっていませんか？"
+              "数字の前にアポストロフィ（\'）が付いていないか確認しましょう。")
+        elif expected_type == 'd' and actual_type == 's':
+          guidance = (
+              "セルが左寄せになっていませんか？"
+              "日付は「2026/9/8」のように入力すると自動的に日付として認識されます。")
+
+        detected_errors.append(
+            f"セル {cell_ref}: ⚠️{expected_label}として入力してほしいところですが、"
+            f"{actual_label}として保存されています。{guidance}")
+
   return detected_errors
 
 
@@ -361,6 +461,54 @@ def review_stage(record_id):
       "human_review": teacher_comment
   }).eq("id", record_id).execute()
   return redirect(url_for('admin_dashboard'))
+
+
+# --- 教員用：ステージ0 正解データの一覧・登録画面 ---
+@app.route('/admin/answer_keys')
+def answer_keys_page():
+  # 表示するステージをクエリパラメータで切り替えられるようにする（デフォルトはステージ0）
+  stage_id = int(request.args.get('stage_id', 0))
+  response = supabase.table("answer_keys").select("*").eq(
+      "stage_id", stage_id).order("cell").execute()
+  keys = response.data or []
+  return render_template('answer_keys.html',
+                          keys=keys,
+                          stage_id=stage_id,
+                          stage_titles=STAGE_TITLES)
+
+
+# --- 教員用：正解データの追加 ---
+@app.route('/admin/answer_keys/add', methods=['POST'])
+def answer_keys_add():
+  stage_id = int(request.form.get('stage_id'))
+  cell = request.form.get('cell', '').strip().upper()
+  expected_value = request.form.get('expected_value', '').strip()
+  expected_type = request.form.get('expected_type', '').strip()
+  hint = request.form.get('hint', '').strip()
+
+  if not cell or (not expected_value and not expected_type):
+    return "セルに加えて、期待値または期待する型のどちらかは必須です", 400
+
+  try:
+    supabase.table("answer_keys").insert({
+        "stage_id": stage_id,
+        "cell": cell,
+        "expected_value": expected_value or None,
+        "expected_type": expected_type or None,
+        "hint": hint or None
+    }).execute()
+  except Exception as e:
+    return f"登録に失敗しました（同じセルが既に登録されている可能性があります）: {str(e)}", 400
+
+  return redirect(url_for('answer_keys_page', stage_id=stage_id))
+
+
+# --- 教員用：正解データの削除 ---
+@app.route('/admin/answer_keys/delete/<record_id>', methods=['POST'])
+def answer_keys_delete(record_id):
+  stage_id = request.form.get('stage_id', 0)
+  supabase.table("answer_keys").delete().eq("id", record_id).execute()
+  return redirect(url_for('answer_keys_page', stage_id=stage_id))
 
 
 if __name__ == '__main__':
