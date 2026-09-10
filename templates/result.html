@@ -1,120 +1,102 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="ja">
-<head>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>提出結果 - Excel/WPS カリキュラム</title>
-  <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}">
-</head>
-<body class="bg-light">
-  <div class="container my-5" style="max-width: 640px;">
+    <head>
+        <meta charset="UTF-8" />
+        <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+        <title>提出結果 - Excel/WPS カリキュラム</title>
+        <link rel="stylesheet" href="{{ url_for('static', filename='css/bootstrap.min.css') }}" />
+    </head>
+    <body class="bg-light">
+        <div class="container my-5" style="max-width: 640px">
+            {% if not success %}
+            <!-- エラー：ファイル不備 or サーバーエラー -->
+            <div class="card shadow-sm border-danger">
+                <div class="card-header bg-danger text-white py-3">
+                    <h4 class="mb-0 text-center">⚠️ エラーが発生しました</h4>
+                </div>
+                <div class="card-body text-center py-4">
+                    <p class="text-danger">{{ message }}</p>
+                    <a href="/" class="btn btn-outline-secondary mt-2">← 提出フォームに戻る</a>
+                </div>
+            </div>
 
-    {% if not success %}
-    <!-- エラー：ファイル不備 or サーバーエラー -->
-    <div class="card shadow-sm border-danger">
-      <div class="card-header bg-danger text-white py-3">
-        <h4 class="mb-0 text-center">⚠️ エラーが発生しました</h4>
-      </div>
-      <div class="card-body text-center py-4">
-        <p class="text-danger">{{ message }}</p>
-        <a href="/" class="btn btn-outline-secondary mt-2">← 提出フォームに戻る</a>
-      </div>
-    </div>
+            {% else %}
+            <!-- 提出成功 -->
 
-    {% else %}
-    <!-- 提出成功 -->
+            {% if status == '提出済' %} {% set header_class = 'bg-success' %} {% set icon = '✅' %} {% set headline =
+            '提出完了！おつかれさまでした' %} {% elif status == '目視レビュー待ち' %} {% set header_class = 'bg-warning
+            text-dark' %} {% set icon = '📋' %} {% set headline = '提出完了！教員による確認をお待ちください' %} {% else
+            %} {% set header_class = 'bg-danger' %} {% set icon = '🔍' %} {% set headline =
+            '提出完了！修正が必要な箇所があります' %} {% endif %}
 
-    {% if status == '提出済' %}
-      {% set header_class = 'bg-success' %}
-      {% set icon = '✅' %}
-      {% set headline = '提出完了！おつかれさまでした' %}
-    {% elif status == '目視レビュー待ち' %}
-      {% set header_class = 'bg-warning text-dark' %}
-      {% set icon = '📋' %}
-      {% set headline = '提出完了！教員による確認をお待ちください' %}
-    {% else %}
-      {% set header_class = 'bg-danger' %}
-      {% set icon = '🔍' %}
-      {% set headline = '提出完了！修正が必要な箇所があります' %}
-    {% endif %}
+            <div class="card shadow-sm">
+                <div class="card-header {{ header_class }} text-white py-3">
+                    <h4 class="mb-0 text-center">{{ icon }} {{ headline }}</h4>
+                </div>
+                <div class="card-body p-4">
+                    <!-- 基本情報 -->
+                    <table class="table table-sm table-borderless mb-4">
+                        <tr>
+                            <th class="text-muted" style="width: 40%">受講生ID</th>
+                            <td><strong>{{ student_id }}</strong></td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">ステージ</th>
+                            <td>{{ stage_name }}</td>
+                        </tr>
+                        <tr>
+                            <th class="text-muted">判定ステータス</th>
+                            <td>
+                                {% if status == '提出済' %}
+                                <span class="badge bg-success">{{ status }}</span>
+                                {% elif status == '目視レビュー待ち' %}
+                                <span class="badge bg-warning text-dark">{{ status }}</span>
+                                {% else %}
+                                <span class="badge bg-danger">{{ status }}</span>
+                                {% endif %}
+                            </td>
+                        </tr>
+                    </table>
 
-    <div class="card shadow-sm">
-      <div class="card-header {{ header_class }} text-white py-3">
-        <h4 class="mb-0 text-center">{{ icon }} {{ headline }}</h4>
-      </div>
-      <div class="card-body p-4">
+                    <!-- 警告メッセージ -->
+                    {% if errors %}
+                    <div class="mb-4">
+                        <div class="d-flex align-items-center mb-2">
+                            <span class="badge bg-danger me-2">{{ error_count }}件の警告</span>
+                            <span class="small text-muted">以下の点を見直してから再提出してください</span>
+                        </div>
+                        <ul class="list-group list-group-flush">
+                            {% for err in errors %}
+                            <li class="list-group-item list-group-item-danger px-3 py-2 small">{{ err }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% elif status == '提出済' %}
+                    <div class="alert alert-success text-center mb-4">🎉 問題は検出されませんでした。合格です！</div>
+                    {% endif %}
 
-        <!-- 基本情報 -->
-        <table class="table table-sm table-borderless mb-4">
-          <tr>
-            <th class="text-muted" style="width:40%;">受講生ID</th>
-            <td><strong>{{ student_id }}</strong></td>
-          </tr>
-          <tr>
-            <th class="text-muted">ステージ</th>
-            <td>{{ stage_name }}</td>
-          </tr>
-          <tr>
-            <th class="text-muted">判定ステータス</th>
-            <td>
-              {% if status == '提出済' %}
-                <span class="badge bg-success">{{ status }}</span>
-              {% elif status == '目視レビュー待ち' %}
-                <span class="badge bg-warning text-dark">{{ status }}</span>
-              {% else %}
-                <span class="badge bg-danger">{{ status }}</span>
-              {% endif %}
-            </td>
-          </tr>
-        </table>
+                    <!-- 参考情報（数式確認・機能一覧など） -->
+                    {% if info_logs %}
+                    <div class="mb-4">
+                        <p class="small text-muted fw-bold mb-1">📄 参考情報（教員が確認します）</p>
+                        <ul class="list-group list-group-flush">
+                            {% for info in info_logs %}
+                            <li class="list-group-item px-3 py-2 small text-secondary">{{ info }}</li>
+                            {% endfor %}
+                        </ul>
+                    </div>
+                    {% endif %}
 
-        <!-- 警告メッセージ -->
-        {% if errors %}
-        <div class="mb-4">
-          <div class="d-flex align-items-center mb-2">
-            <span class="badge bg-danger me-2">{{ error_count }}件の警告</span>
-            <span class="small text-muted">以下の点を見直してから再提出してください</span>
-          </div>
-          <ul class="list-group list-group-flush">
-            {% for err in errors %}
-            <li class="list-group-item list-group-item-danger px-3 py-2 small">
-              {{ err }}
-            </li>
-            {% endfor %}
-          </ul>
+                    <!-- アクションボタン -->
+                    <div class="d-grid gap-2 mt-3">
+                        {% if status != '提出済' %}
+                        <a href="/" class="btn btn-primary">修正して再提出する</a>
+                        {% endif %}
+                        <a href="/" class="btn btn-outline-secondary">← 提出フォームに戻る</a>
+                    </div>
+                </div>
+            </div>
+            {% endif %}
         </div>
-        {% elif status == '提出済' %}
-        <div class="alert alert-success text-center mb-4">
-          🎉 問題は検出されませんでした。合格です！
-        </div>
-        {% endif %}
-
-        <!-- 参考情報（数式確認・機能一覧など） -->
-        {% if info_logs %}
-        <div class="mb-4">
-          <p class="small text-muted fw-bold mb-1">📄 参考情報（教員が確認します）</p>
-          <ul class="list-group list-group-flush">
-            {% for info in info_logs %}
-            <li class="list-group-item px-3 py-2 small text-secondary">
-              {{ info }}
-            </li>
-            {% endfor %}
-          </ul>
-        </div>
-        {% endif %}
-
-        <!-- アクションボタン -->
-        <div class="d-grid gap-2 mt-3">
-          {% if status != '提出済' %}
-          <a href="/" class="btn btn-primary">修正して再提出する</a>
-          {% endif %}
-          <a href="/" class="btn btn-outline-secondary">← 提出フォームに戻る</a>
-        </div>
-
-      </div>
-    </div>
-    {% endif %}
-
-  </div>
-</body>
+    </body>
 </html>

@@ -199,6 +199,37 @@ def analyze_excel_file(file_stream, stage_id):
           upper_val = val.upper().replace(" ", "")
           functions_used.update(re.findall(r'([A-Z]+)\(', upper_val))
 
+  # --- ステージ2：関数使用チェック（ループ外・シート単位） ---
+  # スペルミス・範囲ミスはループ内で検出済み。
+  # ここでは「指定された関数が実際に使われているか」を採点対象セルごとに確認する。
+  if stage_id == 2:
+    # {セル座標: (期待する関数名, ラベル)} の対応表
+    REQUIRED_FUNCTIONS = {
+        "F8":  ("SUM",     "田中 一郎の合計"),
+        "F9":  ("SUM",     "鈴木 花子の合計"),
+        "F10": ("SUM",     "佐藤 次郎の合計"),
+        "F11": ("SUM",     "山田 三枝の合計"),
+        "F12": ("SUM",     "伊藤 四朗の合計"),
+        "F15": ("COUNT",   "受験者数"),
+        "F16": ("AVERAGE", "平均点"),
+        "F17": ("MAX",     "最高点"),
+        "F18": ("MIN",     "最低点"),
+    }
+    for cell_ref, (func_name, label) in REQUIRED_FUNCTIONS.items():
+      try:
+        cell_val = str(ws[cell_ref].value or "").upper().replace(" ", "")
+      except Exception:
+        continue
+
+      if not cell_val.startswith("="):
+        detected_errors.append(
+            f"セル {cell_ref}（{label}）: ⚠️数式が入力されていません。"
+            f"{func_name}関数を使って求めましょう。")
+      elif f"{func_name}(" not in cell_val:
+        detected_errors.append(
+            f"セル {cell_ref}（{label}）: ⚠️{func_name}関数が使われていません。"
+            f"=で始まる数式の中に {func_name}( ) を使って求めましょう。")
+
   # --- ステージ5：データ整形のチェック（シート単位のためループの外で判定） ---
   if stage_id == 5:
     # ① テーブル化されているか
@@ -370,26 +401,53 @@ def analyze_excel_file(file_stream, stage_id):
         continue
 
       actual_type = cell.data_type
+      cell_val_str = str(cell.value) if cell.value is not None else ""
+
+      # 日付はシリアル値として保存されdatatype='n'になる場合があるため
+      # is_date_cell()で再判定し、expected_type=='d'なら正解扱いにする
+      if expected_type == 'd' and is_date_cell(cell):
+        continue
 
       if actual_type != expected_type:
         expected_label = type_labels.get(expected_type, expected_type)
         actual_label = type_labels.get(actual_type, actual_type)
 
+        # 「円」付き入力（例:1000円）は数値欄への文字列保存として検出されるが、
+        # セルループ内の「円チェック」で既に分かりやすいメッセージを出しているため
+        # 初心者向けに型エラーメッセージは重複させない。
+        if expected_type == 'n' and actual_type == 's' and "円" in cell_val_str:
+          continue
+
         guidance = ""
         if expected_type == 'n' and actual_type == 's':
-          guidance = (
-              "セルが左寄せになっていませんか？"
-              "数字の前にアポストロフィ（\'）が付いていないか確認しましょう。")
+          guidance = "数字の前にアポストロフィ（\'）が付いていないか確認しましょう。"
         elif expected_type == 'd' and actual_type == 's':
-          guidance = (
-              "セルが左寄せになっていませんか？"
-              "日付は「2026/9/8」のように入力すると自動的に日付として認識されます。")
+          guidance = "「2026/9/8」のようにスラッシュ区切りで入力すると自動的に日付として認識されます。"
 
         detected_errors.append(
-            f"セル {cell_ref}: ⚠️{expected_label}として入力してほしいところですが、"
-            f"{actual_label}として保存されています。{guidance}")
+            f"セル {cell_ref}: ⚠️{expected_label}を入力してほしいところですが、"
+            f"セルが左寄せ（文字列扱い）になっています。{guidance}")
 
   return detected_errors
+
+
+def is_date_cell(cell):
+  """openpyxlの data_type だけでなく、Excelのシリアル値範囲と書式も合わせて
+  日付セルかどうかを判定する。
+  Excelは日付を内部的にシリアル値（1900/1/1=1 起点の整数）として保存するため、
+  number_format が 'General' のままでも日付として入力された場合がある。
+  シリアル値の範囲：1（1900/1/1）〜 65380（2078/12/31）
+  """
+  if cell.data_type == 'd':
+    return True
+  fmt = (cell.number_format or "").lower()
+  DATE_FORMAT_KEYWORDS = ["yy", "mm", "dd", "m/d", "d/m", "[$-", "年", "月", "日"]
+  if any(k in fmt for k in DATE_FORMAT_KEYWORDS):
+    return True
+  val = cell.value
+  if isinstance(val, (int, float)) and 1 <= val <= 65380:
+    return True
+  return False
 
 
 def has_pivot_table(file_stream):
@@ -421,7 +479,15 @@ def upload_progress():
   file = request.files.get('excel_file')
 
   if not file or not file.filename.endswith('.xlsx'):
-    return "有効な.xlsxファイルをアップロードしてください", 400
+    return render_template('result.html',
+                            success=False,
+                            student_id=None,
+                            stage_name=None,
+                            status=None,
+                            error_count=0,
+                            errors=[],
+                            info_logs=[],
+                            message="有効な.xlsxファイルをアップロードしてください。"), 400
 
   try:
     try:
@@ -435,8 +501,10 @@ def upload_progress():
     # エラーおよび数式を解析
     all_logs = analyze_excel_file(file, stage_id)
 
-    # 「⚠️」や「エラー」という文字が入っているものだけを、本当の「エラー」としてカウント
+    # 「⚠️」や「エラー」を含むものを警告としてカウント
     real_errors = [msg for msg in all_logs if "⚠️" in msg or "エラー" in msg]
+    # 「【参考情報】」「【数式確認】」「【検出機能一覧】」は参考情報として分離
+    info_logs = [msg for msg in all_logs if msg not in real_errors]
     error_count = len(real_errors)
 
     # ステータスの判定ルール（ステージ3・6・8は目視レビュー待ちへ）
@@ -456,9 +524,26 @@ def upload_progress():
     }
     supabase.table("progress_results").insert(progress_data).execute()
 
-    return f"<h3>提出が完了しました！（自動検知されたエラー: {error_count}件）</h3><a href='/'>戻る</a>"
+    return render_template('result.html',
+                            success=True,
+                            student_id=student_id,
+                            stage_name=STAGE_TITLES.get(stage_id,
+                                                         f"ステージ{stage_id}"),
+                            status=status,
+                            error_count=error_count,
+                            errors=real_errors,
+                            info_logs=info_logs,
+                            message=None)
   except Exception as e:
-    return f"エラー: {str(e)}", 500
+    return render_template('result.html',
+                            success=False,
+                            student_id=student_id,
+                            stage_name=None,
+                            status=None,
+                            error_count=0,
+                            errors=[],
+                            info_logs=[],
+                            message=f"サーバーエラーが発生しました: {str(e)}"), 500
 
 
 # --- 教員用：管理画面 ---
