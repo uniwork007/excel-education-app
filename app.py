@@ -56,7 +56,12 @@ def normalize_for_compare(value):
 def analyze_excel_file(file_stream, stage_id):
   """Excelファイルを解析して、躓き要素や数式をリストで返す"""
   wb = openpyxl.load_workbook(file_stream, data_only=False)
-  ws = wb.active
+
+  # stage4は2シート構成。「マスタ」以外のシートを採点対象とする
+  if stage_id == 4 and len(wb.sheetnames) > 1:
+    ws = next((wb[s] for s in wb.sheetnames if s != "マスタ"), wb.active)
+  else:
+    ws = wb.active
   detected_errors = []
   functions_used = set()  # ステージ8で使用関数を収集するための集合
 
@@ -139,14 +144,35 @@ def analyze_excel_file(file_stream, stage_id):
               f"セル {cell.coordinate}: ⚠️IF関数の引数が足りません。条件に合わない（偽の）場合の表示内容も設定しましょう。"
           )
 
-      # --- ステージ3：参照の理解（数式抽出の人間系判断モード） ---
+      # --- ステージ3：参照の理解（数式抽出＋絶対参照チェック） ---
       if stage_id == 3:
         if val.startswith("="):
-          detected_errors.append(f"【数式確認】セル {cell.coordinate}: {val}")
-          # 数式の中に全角が混ざっている致命的なバグだけ警告として残す
+          detected_errors.append(
+              f"【数式確認】セル {cell.coordinate}: {val}")
+
+          # 全角文字の混入チェック（致命的バグのみ警告）
           if "＝" in val or "（" in val or "）" in val:
             detected_errors.append(
                 f"⚠️ セル {cell.coordinate}: 数式に全角文字が混入しているため、計算されていません。")
+
+          # F列のデータ行（10〜14行）は消費税率D4への参照が必須。
+          # 「$D$4」が正解だが、「D$4」（行のみ絶対）も下コピーでズレないので許容。
+          # 「$D4」（列のみ絶対）は下コピーで行番号がズレるため不正解として検出する。
+          if cell.column == 6 and 10 <= cell.row <= 14:
+            upper_val = val.upper().replace(" ", "")
+            # 正解：$D$4 または D$4（行固定があればコピーしてもD4を参照し続ける）
+            ok = "$D$4" in upper_val or "D$4" in upper_val
+            if not ok:
+              if "$D4" in upper_val:
+                # 列のみ絶対参照：列は固定されているが行がズレる
+                detected_errors.append(
+                    f"セル {cell.coordinate}: ⚠️「$D4」になっています。"
+                    f"下にコピーすると行番号がズレて D5, D6...と参照がずれてしまいます。"
+                    f"「$D$4」と列・行の両方に$を付けましょう（F4キーを2回押すと$D4、もう1回で$D$4になります）。")
+              else:
+                detected_errors.append(
+                    f"セル {cell.coordinate}: ⚠️消費税率のセル（D4）が絶対参照（$D$4）になっていません。"
+                    f"数式をコピーするとズレてしまいます。F4キーで$マークを付けましょう。")
 
       # --- ステージ4：応用関数のチェック ---
       if stage_id == 4:
@@ -158,24 +184,32 @@ def analyze_excel_file(file_stream, stage_id):
           # ① VLOOKUP関数の徹底チェック
           if "VLOOKUP(" in upper_val:
             # 1. 完全一致（第4引数）の指定忘れチェック
-            # 引数が4つ未満、または4つ目（最後の引数）が 0/FALSE になっていない場合
-            # カンマの数と末尾の記述を正規表現で厳密にチェックします
-            if not (upper_val.endswith(",0)")
-                    or upper_val.endswith(",FALSE)")
-                    or upper_val.endswith(",0.0)")
-                    or "FALSE," in upper_val or "0," in upper_val):
+            # VLOOKUPは引数4つが正しい形式。カンマが3つ未満＝引数が足りない。
+            # 末尾が「,FALSE)」または「,0)」かどうかで判定する。
+            vlookup_args = upper_val.count(",")
+            has_false = upper_val.endswith(",FALSE)") or upper_val.endswith(",0)")
+            if vlookup_args < 3 or not has_false:
               detected_errors.append(
-                  f"セル {cell.coordinate}: ⚠️VLOOKUP関数の第4引数（検索方法）に 'FALSE' または '0' が指定されていません。 "
-                  f"これがないと、完全に一致するデータではなく『一番近いデータ』を勝手に探してしまい、実務で大事故の原因になります。"
-              )
+                  f"セル {cell.coordinate}: ⚠️VLOOKUP関数の第4引数（検索方法）に 'FALSE' または '0' が指定されていません。"
+                  f"これがないと、完全に一致するデータではなく『一番近いデータ』を返すことがあり、実務で大事故の原因になります。")
 
-            # 2. 検索マスタ範囲（第2引数）の絶対参照忘れチェック
-            # 数式を下にコピペしたときにマスタ範囲がズレるのを防ぐため
-            # 数式全体に $ が含まれていない場合は警告
-            if not "$" in upper_val:
+            # 2. マスタ範囲の絶対参照チェック
+            # 「$A$3」形式（完全絶対）が正解。
+            # 「$A3」（列のみ）は下コピーで行がズレるため不正解として検出する。
+            import re as _re
+            # マスタ!$A$3:$C$10 のような完全絶対参照パターンを探す
+            has_full_abs = bool(_re.search(r'\$[A-Z]+\$\d+', upper_val))
+            has_col_only = bool(_re.search(r'\$[A-Z]+\d+', upper_val)) and not has_full_abs
+            if has_col_only:
               detected_errors.append(
-                  f"セル {cell.coordinate}: ⚠️VLOOKUPの参照マスタ範囲に絶対参照（$）がついていない可能性があります。 "
-                  f"数式を下にコピペした際、マスタの範囲まで一緒にズレてしまっていませんか？")
+                  f"セル {cell.coordinate}: ⚠️マスタ範囲の行番号に$がついていません（例：$A3）。"
+                  f"数式を下にコピーするとマスタ範囲の行がズレてしまいます。"
+                  f"「$A$3:$C$10」のように列・行の両方に$を付けましょう。")
+            elif not has_full_abs:
+              detected_errors.append(
+                  f"セル {cell.coordinate}: ⚠️VLOOKUPのマスタ範囲に絶対参照（$）がついていません。"
+                  f"数式をコピーするとマスタ範囲がズレてしまいます。"
+                  f"「マスタ!$A$3:$C$10」のように$マークを付けましょう。")
 
           # ② XLOOKUP関数のチェック（最新の表計算ソフト対応）
           elif "XLOOKUP(" in upper_val:
@@ -229,6 +263,37 @@ def analyze_excel_file(file_stream, stage_id):
         detected_errors.append(
             f"セル {cell_ref}（{label}）: ⚠️{func_name}関数が使われていません。"
             f"=で始まる数式の中に {func_name}( ) を使って求めましょう。")
+
+  # --- ステージ4：VLOOKUP使用チェック（ループ外・シート単位） ---
+  if stage_id == 4:
+    # C列・D列（商品名・単価）にVLOOKUPが使われているかを確認
+    VLOOKUP_REQUIRED = {
+        "C9":  "商品名（C列）", "C10": "商品名（C列）", "C11": "商品名（C列）",
+        "C12": "商品名（C列）", "C13": "商品名（C列）", "C14": "商品名（C列）",
+        "D9":  "単価（D列）",   "D10": "単価（D列）",   "D11": "単価（D列）",
+        "D12": "単価（D列）",   "D13": "単価（D列）",   "D14": "単価（D列）",
+    }
+    # シート名「課題4」を探す（受講生がシート名を変えていた場合も考慮）
+    target_ws = None
+    for sheet_name in wb.sheetnames:
+      if sheet_name != "マスタ":
+        target_ws = wb[sheet_name]
+        break
+
+    if target_ws:
+      for cell_ref, label in VLOOKUP_REQUIRED.items():
+        try:
+          cell_val = str(target_ws[cell_ref].value or "").upper().replace(" ", "")
+        except Exception:
+          continue
+        if not cell_val.startswith("="):
+          detected_errors.append(
+              f"セル {cell_ref}（{label}）: ⚠️数式が入力されていません。"
+              f"VLOOKUP関数を使って商品マスタから自動取得しましょう。")
+        elif "VLOOKUP(" not in cell_val:
+          detected_errors.append(
+              f"セル {cell_ref}（{label}）: ⚠️VLOOKUP関数が使われていません。"
+              f"=VLOOKUP(検索値, マスタ!$A$3:$C$10, 列番号, FALSE) の形式で入力しましょう。")
 
   # --- ステージ5：データ整形のチェック（シート単位のためループの外で判定） ---
   if stage_id == 5:
