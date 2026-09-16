@@ -53,58 +53,17 @@
                         </div>
 
                         <!-- ③ 課題ファイルのダウンロード -->
-                        <div class="mb-3">
-                            <label class="form-label fw-bold">課題ファイル (.xlsx)</label>
-                            <div class="d-grid">
-                                <a
-                                    href="{{ url_for('static', filename='assignments/stage0_template.xlsx') }}"
-                                    class="btn btn-outline-primary"
-                                    download
-                                >
-                                    ⬇️ 課題ファイルをダウンロード
-                                </a>
-                            </div>
-
-                            <div class="d-grid">
-                                <a
-                                    href="{{ url_for('static', filename='assignments/stage1_template.xlsx') }}"
-                                    class="btn btn-outline-primary"
-                                    download
-                                >
-                                    ⬇️ 課題ファイルをダウンロード
-                                </a>
-                            </div>
-
-                            <div class="d-grid">
-                                <a
-                                    href="{{ url_for('static', filename='assignments/stage2_template.xlsx') }}"
-                                    class="btn btn-outline-primary"
-                                    download
-                                >
-                                    ⬇️ 課題ファイルをダウンロード
-                                </a>
-                            </div>
-
-                            <div class="form-text text-muted">
-                                ※このファイルに記入して、下のフォームから提出してください。
-                            </div>
+                        <div class="d-grid">
+                            <a
+                                id="download_template"
+                                href="{{ url_for('download_template', stage_id=0) }}"
+                                class="btn btn-outline-primary"
+                                download
+                            >
+                                ⬇️ 課題ファイルをダウンロード
+                            </a>
                         </div>
-
-                        <!-- ④ ファイル選択 -->
-                        <div class="mb-4">
-                            <label for="excel_file" class="form-label fw-bold">Excel / WPSファイル (.xlsx)</label>
-                            <input
-                                class="form-control"
-                                type="file"
-                                id="excel_file"
-                                name="excel_file"
-                                accept=".xlsx"
-                                required
-                            />
-                            <div class="form-text text-muted">
-                                ※MS-ExcelおよびWPS Calcで保存した.xlsxファイルに対応しています。
-                            </div>
-                        </div>
+                        <br />
 
                         <!-- ⑤ 送信ボタン -->
                         <div class="d-grid">
@@ -142,6 +101,8 @@
                 const stageId = document.getElementById("stage_id").value;
                 document.getElementById("target_goal").innerText = stageDetails[stageId].goal;
                 document.getElementById("target_task").innerText = stageDetails[stageId].task;
+                document.getElementById("download_template").href =
+                    "{{ url_for('download_template') }}?stage_id=" + stageId;
             }
         </script>
     </body>

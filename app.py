@@ -2,7 +2,16 @@ import os
 import re
 import zipfile
 import unicodedata
-from flask import Flask, request, jsonify, render_template, redirect, url_for
+from flask import (
+    Flask,
+    request,
+    jsonify,
+    render_template,
+    redirect,
+    url_for,
+    send_from_directory,
+    abort,
+)
 import openpyxl
 from dotenv import load_dotenv
 from supabase import create_client, Client
@@ -300,23 +309,38 @@ def analyze_excel_file(file_stream, stage_id):
     # ① テーブル化されているか
     if not ws.tables:
       detected_errors.append(
-          "⚠️テーブル化（Ctrl+T）が行われていません。表全体を「テーブル」として登録しましょう。")
+          "⚠️テーブル化（Ctrl+T）が行われていません。"
+          "表全体（B10:F25）を選択して「挿入」→「テーブル」で設定しましょう。")
+    else:
+      # テーブルがデータ範囲（B列〜F列、10行以上）を含んでいるか確認
+      import re as _re
+      for tbl in ws.tables.values():
+        ref = tbl.ref  # 例: "B10:F25"
+        match = _re.match(r'([A-Z]+)(\d+):([A-Z]+)(\d+)', ref)
+        if match:
+          start_col, start_row, end_col, end_row = match.groups()
+          if int(start_row) > 10 or int(end_row) < 20:
+            detected_errors.append(
+                f"⚠️テーブルの範囲（{ref}）が在庫データ全体を含んでいない可能性があります。"
+                f"ヘッダー行（10行目）から全データ行（25行目）を含めて設定しましょう。")
 
     # ② オートフィルタが設定されているか
-    #    （テーブル化していれば自動的にフィルタも付くので、テーブル自身のautoFilterも確認）
     has_filter = bool(ws.auto_filter.ref) or any(
         table.autoFilter and table.autoFilter.ref
         for table in ws.tables.values())
     if not has_filter:
       detected_errors.append(
-          "⚠️並べ替え・フィルタ（オートフィルタ）が設定されていません。")
+          "⚠️フィルタが設定されていません。"
+          "テーブル化するとフィルタは自動で付きます。テーブル化を先に確認しましょう。")
 
     # ③ 条件付き書式が設定されているか
     has_conditional_formatting = any(
         cf_range.rules for cf_range in ws.conditional_formatting)
     if not has_conditional_formatting:
       detected_errors.append(
-          "⚠️条件付き書式が設定されていません。異常値のハイライトなどを設定しましょう。")
+          "⚠️条件付き書式が設定されていません。"
+          "「ホーム」→「条件付き書式」→「新しいルール」で在庫切れ（在庫数≦発注点）の"
+          "行をオレンジ色にハイライトしましょう。")
 
   # --- ステージ6：可視化のチェック（グラフはopenpyxlの非公開APIに依存するため try/except で保護） ---
   if stage_id == 6:
@@ -535,6 +559,33 @@ def has_pivot_table(file_stream):
 def upload_page():
   return render_template('upload.html')
 
+# --- 受講生用：試験ファイルDL ---
+@app.route('/download_template')
+def download_template():
+  stage_id = request.args.get('stage_id', type=int)
+
+  if stage_id is None:
+    abort(400)
+
+  response = (
+      supabase
+      .table("stage_templates")
+      .select("stage_template")
+      .eq("d", stage_id)
+      .single()
+      .execute()
+  )
+
+  if not response.data:
+    abort(404)
+
+  filename = response.data["stage_template"]
+
+  return send_from_directory(
+      "static/assignment/assignmentDirectory",
+      filename,
+      as_attachment=True
+  )
 
 # --- 受講生用：ファイル受け取り・判定処理 ---
 @app.route('/upload_progress', methods=['POST'])
